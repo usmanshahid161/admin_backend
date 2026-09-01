@@ -40,6 +40,16 @@ function validateTemplatePayload(payload) {
     errors.push('Language is required');
   }
 
+  // AUTHENTICATION templates are structurally different — no header, no
+  // free-form body/footer text (Meta generates it), exactly one OTP
+  // button. None of the header/body/footer/regular-button rules below
+  // apply to them at all, so this branches early instead of layering
+  // "except for auth" exceptions into every check.
+  // https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/authentication-templates
+  if (payload.category === 'AUTHENTICATION') {
+    return validateAuthenticationPayload(payload, errors);
+  }
+
   const body = payload.components?.body;
   const bodyText = body?.text?.trim();
   if (!bodyText) {
@@ -82,6 +92,9 @@ function validateTemplatePayload(payload) {
   if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header?.type) && !header?.exampleUrl) {
     errors.push('A sample media URL/handle is required for image, video, or document headers');
   }
+  if (header?.type === 'LOCATION' && !['MARKETING', 'UTILITY'].includes(payload.category)) {
+    errors.push('A location header is only allowed on MARKETING or UTILITY templates');
+  }
 
   const footerText = payload.components?.footer?.text;
   if (footerText && footerText.length > LIMITS.FOOTER_TEXT_MAX) {
@@ -105,11 +118,39 @@ function validateTemplatePayload(payload) {
     else if (b.text.length > LIMITS.BUTTON_TEXT_MAX) errors.push(`Button ${i + 1}: text must be under ${LIMITS.BUTTON_TEXT_MAX} characters`);
     if (b.type === 'URL' && !b.url?.trim()) errors.push(`Button ${i + 1}: URL is required`);
     if (b.type === 'PHONE_NUMBER' && !b.phoneNumber?.trim()) errors.push(`Button ${i + 1}: phone number is required`);
+    if (['OTP'].includes(b.type)) errors.push(`Button ${i + 1}: OTP buttons are only valid on AUTHENTICATION templates`);
   });
 
-  if (payload.category === 'AUTHENTICATION') {
-    const invalidButtons = buttons.some((b) => !['OTP', 'COPY_CODE'].includes(b.type));
-    if (invalidButtons) errors.push('Authentication templates only support OTP / copy-code buttons');
+  return errors;
+}
+
+// Authentication templates support: an optional security-recommendation
+// line, an optional code-expiration footer, and exactly one OTP button
+// (copy-code, one-tap, or zero-tap). No header, no custom body/footer text.
+function validateAuthenticationPayload(payload, errors) {
+  const auth = payload.components?.authentication || {};
+  const buttons = payload.components?.buttons || [];
+
+  if (payload.components?.header?.type && payload.components.header.type !== 'NONE') {
+    errors.push('Authentication templates cannot have a header');
+  }
+
+  if (auth.codeExpirationMinutes != null) {
+    if (auth.codeExpirationMinutes < 1 || auth.codeExpirationMinutes > 90) {
+      errors.push('Code expiration must be between 1 and 90 minutes');
+    }
+  }
+
+  if (buttons.length !== 1 || buttons[0]?.type !== 'OTP') {
+    errors.push('Authentication templates require exactly one OTP button');
+  } else {
+    const otp = buttons[0];
+    if (!['COPY_CODE', 'ONE_TAP', 'ZERO_TAP'].includes(otp.otpType)) {
+      errors.push('OTP button must be Copy code, One-tap, or Zero-tap');
+    }
+    if (['ONE_TAP', 'ZERO_TAP'].includes(otp.otpType) && (!otp.packageName?.trim() || !otp.signatureHash?.trim())) {
+      errors.push('One-tap/zero-tap OTP buttons need the Android package name and signature hash');
+    }
   }
 
   return errors;

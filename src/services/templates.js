@@ -8,6 +8,15 @@ const WABA_ID = configs.WHATSAPP_BUSINESS_ACCOUNT_ID;
 
 // Converts our internal document shape into Meta's `components` array format
 function buildMetaComponents(template) {
+  // AUTHENTICATION templates have a structurally different shape — no
+  // header, no free-form body/footer text (Meta generates it), and
+  // exactly one OTP-type button. Not just a stricter version of the
+  // normal shape, so this is a separate branch rather than reusing the
+  // header/body/footer/buttons fields below.
+  if (template.category === 'AUTHENTICATION') {
+    return buildAuthenticationComponents(template);
+  }
+
   const components = [];
   const { header, body, footer, buttons } = template.components || {};
 
@@ -47,6 +56,32 @@ function buildMetaComponents(template) {
       }),
     });
   }
+
+  return components;
+}
+
+// See: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/authentication-templates
+function buildAuthenticationComponents(template) {
+  const auth = template.components?.authentication || {};
+  const otpButton = template.components?.buttons?.[0] || {};
+
+  const components = [
+    {
+      type: 'BODY',
+      ...(auth.addSecurityRecommendation ? { add_security_recommendation: true } : {}),
+    },
+  ];
+
+  if (auth.codeExpirationMinutes) {
+    components.push({ type: 'FOOTER', code_expiration_minutes: auth.codeExpirationMinutes });
+  }
+
+  const otp = { type: 'OTP', otp_type: (otpButton.otpType || 'COPY_CODE').toLowerCase() };
+  if (['ONE_TAP', 'ZERO_TAP'].includes(otpButton.otpType) && otpButton.packageName && otpButton.signatureHash) {
+    otp.supported_apps = [{ package_name: otpButton.packageName, signature_hash: otpButton.signatureHash }];
+  }
+
+  components.push({ type: 'BUTTONS', buttons: [otp] });
 
   return components;
 }
@@ -238,6 +273,47 @@ async function syncTemplateStatuses() {
   return Template.find().sort({ createdAt: -1 }).lean();
 }
 
+// Real-time counterpart to syncTemplateStatuses() above — called by
+// cloud_service the instant Meta sends a message_template_status_update
+// webhook (approved/rejected/paused/disabled), instead of waiting for
+// someone to manually hit "Sync". Payload shape per Meta's docs:
+// { message_template_id, message_template_name, message_template_language,
+//   event: "APPROVED"|"REJECTED"|"PAUSED"|"DISABLED"|..., reason }
+async function updateStatusFromWebhook(payload) {
+  const {
+    message_template_id: metaTemplateId,
+    message_template_name: name,
+    message_template_language: language,
+    event,
+    reason,
+  } = payload || {};
+
+  if (!name || !language || !event) {
+    const err = new Error('message_template_name, message_template_language and event are required');
+    err.statusCode = 422;
+    throw err;
+  }
+
+  const template = await Template.findOneAndUpdate(
+    { name, language },
+    {
+      status: event,
+      rejectionReason: event === 'REJECTED' ? reason || null : null,
+      ...(metaTemplateId ? { metaTemplateId: String(metaTemplateId) } : {}),
+    },
+    { new: true }
+  ).lean();
+
+  if (!template) {
+    // Meta knows about a template we don't (e.g. created directly in
+    // Meta's UI, or our DB got out of sync) — not an error worth failing
+    // the webhook over, just nothing to update on our side.
+    return null;
+  }
+
+  return template;
+}
+
 module.exports = {
   listTemplates,
   getTemplateById,
@@ -246,4 +322,5 @@ module.exports = {
   deleteTemplate,
   submitTemplateForReview,
   syncTemplateStatuses,
+  updateStatusFromWebhook,
 };

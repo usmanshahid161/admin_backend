@@ -38,7 +38,13 @@ exports.submitTemplate = asyncHandler(async (req, res) => {
 
 exports.syncTemplates = asyncHandler(async (req, res) => {
   const templates = await templatesService.syncTemplateStatuses();
-
-  console.log(templates, "templatessssssss")
   res.status(200).json({ success: true, data: templates });
+});
+
+// Internal-only — cloud_service calls this the instant Meta sends a
+// message_template_status_update webhook. Reached via x-internal-key,
+// never by the UI.
+exports.webhookStatusUpdate = asyncHandler(async (req, res) => {
+  const template = await templatesService.updateStatusFromWebhook(req.body);
+  res.status(200).json({ success: true, data: template });
 });

@@ -14,5 +14,6 @@ router.put('/:id', templatesController.updateTemplate);
 router.delete('/:id', templatesController.deleteTemplate);
 router.post('/:id/submit', templatesController.submitTemplate);
 router.post('/sync', templatesController.syncTemplates);
+router.post('/webhook-status', templatesController.webhookStatusUpdate);
 
 module.exports = router;
