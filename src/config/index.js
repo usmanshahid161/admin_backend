@@ -28,9 +28,6 @@ module.exports = {
   process.env.AWS_SECRET_ACCESS_KEY,
 
   AWS_S3_BUCKET:
-  process.env.AWS_S3_BUCKET,
-
-  WHATSAPP_BUSINESS_ACCOUNT_ID:
-  process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
+  process.env.AWS_S3_BUCKET
 
 };

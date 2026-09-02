@@ -10,7 +10,7 @@ const WhatsappNumberSchema = new mongoose.Schema(
     // One queue per number, per your call — this drives RabbitMQ routing
     // (see services/whatsappNumbers.js), so it can't be ambiguous the way
     // an array would be.
-    queue: { type: mongoose.Schema.Types.ObjectId, ref: 'Queue', default: null },
+    queue: { type: String, ref: 'Queue', default: null },
     flow: { type: mongoose.Schema.Types.ObjectId, ref: 'Flow', default: null },
 
     // Meta only ever delivers this number's webhook to whichever

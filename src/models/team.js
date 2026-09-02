@@ -9,7 +9,7 @@ const TeamSchema = new mongoose.Schema(
     // Agent identity ids (UserIdentity._id from the auth service) — plain
     // strings, same reasoning as Group.agents above.
     agents: { type: [String], default: [] },
-    queues: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Queue' }],
+    queues: [{ type: String, ref: 'Queue' }],
     groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Group' }],
   },
   { timestamps: true }

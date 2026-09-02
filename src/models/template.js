@@ -21,6 +21,10 @@ const ButtonSchema = new mongoose.Schema(
 
 const TemplateSchema = new mongoose.Schema(
   {
+    // Each tenant submits templates against their own WABA now — this
+    // scopes every query/mutation the same way Tags/Queues/etc already are.
+    tenantId: { type: String, required: true, index: true },
+
     name: {
       type: String,
       required: true,
@@ -113,7 +117,8 @@ const TemplateSchema = new mongoose.Schema(
   { timestamps: true } // adds createdAt / updatedAt automatically
 );
 
-// Same template name can exist for different languages, but not twice for the same language
-TemplateSchema.index({ name: 1, language: 1 }, { unique: true });
+// Same template name can exist for different tenants (each has their own
+// WABA now) or different languages, but not twice for the same tenant+language.
+TemplateSchema.index({ tenantId: 1, name: 1, language: 1 }, { unique: true });
 
 module.exports = mongoose.model('Template', TemplateSchema);

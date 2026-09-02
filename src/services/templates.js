@@ -4,8 +4,6 @@ const Template = require('../models/template');
 const { validateTemplatePayload } = require('../common/templateValidator');
 const configs = require('../config');
 
-const WABA_ID = configs.WHATSAPP_BUSINESS_ACCOUNT_ID;
-
 // Converts our internal document shape into Meta's `components` array format
 function buildMetaComponents(template) {
   // AUTHENTICATION templates have a structurally different shape — no
@@ -86,16 +84,16 @@ function buildAuthenticationComponents(template) {
   return components;
 }
 
-async function listTemplates({ status, category, search } = {}) {
-  const query = {};
+async function listTemplates(tenantId, { status, category, search } = {}) {
+  const query = { tenantId };
   if (status) query.status = status;
   if (category) query.category = category;
   if (search) query.name = { $regex: search, $options: 'i' };
   return Template.find(query).sort({ createdAt: -1 }).lean();
 }
 
-async function getTemplateById(id) {
-  const template = await Template.findById(id).lean();
+async function getTemplateById(tenantId, id) {
+  const template = await Template.findOne({ _id: id, tenantId }).lean();
   if (!template) {
     const err = new Error('Template not found');
     err.statusCode = 404;
@@ -104,7 +102,7 @@ async function getTemplateById(id) {
   return template;
 }
 
-async function createTemplate(payload, userId) {
+async function createTemplate(tenantId, phone, payload, userId) {
   const errors = validateTemplatePayload(payload);
   if (errors.length) {
     const err = new Error('Validation failed');
@@ -117,7 +115,7 @@ async function createTemplate(payload, userId) {
 
   let template;
   try {
-    template = await Template.create({ ...payload, status, createdBy: userId });
+    template = await Template.create({ ...payload, tenantId, status, createdBy: userId });
   } catch (err) {
     if (err.code === 11000) {
       const dupErr = new Error(
@@ -130,14 +128,14 @@ async function createTemplate(payload, userId) {
   }
 
   if (status === 'PENDING') {
-    await submitToMeta(template);
+    await submitToMeta(tenantId, phone, template);
   }
 
   return Template.findById(template._id).lean();
 }
 
-async function updateTemplate(id, payload) {
-  const existing = await Template.findById(id);
+async function updateTemplate(tenantId, phone, id, payload) {
+  const existing = await Template.findOne({ _id: id, tenantId });
   if (!existing) {
     const err = new Error('Template not found');
     err.statusCode = 404;
@@ -162,14 +160,14 @@ async function updateTemplate(id, payload) {
   await existing.save();
 
   if (status === 'PENDING') {
-    await submitToMeta(existing);
+    await submitToMeta(tenantId, phone, existing);
   }
 
   return Template.findById(id).lean();
 }
 
-async function deleteTemplate(id) {
-  const template = await Template.findById(id);
+async function deleteTemplate(tenantId, id) {
+  const template = await Template.findOne({ _id: id, tenantId });
   if (!template) {
     const err = new Error('Template not found');
     err.statusCode = 404;
@@ -180,7 +178,7 @@ async function deleteTemplate(id) {
   if (template.metaTemplateId) {
     try {
       await axios.delete(`${configs.WHATSAPP_LOCAL_URL}/templates`, {
-        params: { name: template.name },
+        params: { name: template.name, tenantId },
       });
     } catch (err) {
       // Log but don't block local deletion if Meta's copy is already gone
@@ -188,18 +186,21 @@ async function deleteTemplate(id) {
     }
   }
 
-  await Template.findByIdAndDelete(id);
+  await Template.findOneAndDelete({ _id: id, tenantId });
   return { deleted: true, id };
 }
 
 // Submits a DRAFT/REJECTED template to Meta via the WhatsApp local service.
-// The interaction manager never talks to graph.facebook.com directly —
-// the local service owns the Graph API calls and the access token.
-async function submitToMeta(template) {
+// The interaction manager never talks to graph.facebook.com directly — the
+// local service owns the Graph API calls and each tenant's own credentials
+// (see local_service's services/tenantCredentials.js).
+async function submitToMeta(tenantId, phone, template) {
   const components = buildMetaComponents(template);
 
   try {
     const response = await axios.post(`${configs.WHATSAPP_LOCAL_URL}/templates`, {
+      phone,
+      tenantId,
       name: template.name,
       language: template.language,
       category: template.category,
@@ -233,8 +234,8 @@ async function submitToMeta(template) {
   }
 }
 
-async function submitTemplateForReview(id) {
-  const template = await Template.findById(id);
+async function submitTemplateForReview(tenantId, phone, id) {
+  const template = await Template.findOne({ _id: id, tenantId });
   if (!template) {
     const err = new Error('Template not found');
     err.statusCode = 404;
@@ -245,40 +246,42 @@ async function submitTemplateForReview(id) {
     err.statusCode = 409;
     throw err;
   }
-  await submitToMeta(template);
+  await submitToMeta(tenantId, phone, template);
   return Template.findById(id).lean();
 }
 
-// Pulls current status + quality rating for every template from Meta (via the
-// local service) and syncs them into our own DB.
-async function syncTemplateStatuses() {
-  const { data } = await axios.get(`${configs.WHATSAPP_LOCAL_URL}/templates`);
+// Pulls current status + quality rating for every template from Meta (via
+// the local service, using this tenant's own credentials) and syncs them
+// into our own DB.
+async function syncTemplateStatuses(tenantId) {
+  const { data } = await axios.get(`${configs.WHATSAPP_LOCAL_URL}/templates`, { params: { tenantId } });
   const metaTemplates = data?.data || [];
-
+  console.log(metaTemplates, "helooooooooo")
   await Promise.all(
     metaTemplates.map(async (mt) => {
       await Template.findOneAndUpdate(
-        { name: mt.name, language: mt.language },
+        { tenantId, name: mt.name, language: mt.language },
         {
           status: mt.status,
           qualityRating: mt.quality_score?.score?.toUpperCase() || 'UNKNOWN',
           rejectionReason: mt.rejected_reason || null,
           metaTemplateId: mt.id,
-          wabaId: WABA_ID,
         }
       );
     })
   );
 
-  return Template.find().sort({ createdAt: -1 }).lean();
+  return Template.find({ tenantId }).sort({ createdAt: -1 }).lean();
 }
 
 // Real-time counterpart to syncTemplateStatuses() above — called by
 // cloud_service the instant Meta sends a message_template_status_update
 // webhook (approved/rejected/paused/disabled), instead of waiting for
-// someone to manually hit "Sync". Payload shape per Meta's docs:
-// { message_template_id, message_template_name, message_template_language,
-//   event: "APPROVED"|"REJECTED"|"PAUSED"|"DISABLED"|..., reason }
+// someone to manually hit "Sync". Payload shape per Meta's docs, plus
+// `wabaId` (the WhatsApp Business Account the event happened on — from
+// the webhook envelope's entry.id, not Meta's own value payload) which we
+// need since name+language alone is no longer unique once every tenant
+// has their own WABA.
 async function updateStatusFromWebhook(payload) {
   const {
     message_template_id: metaTemplateId,
@@ -286,6 +289,7 @@ async function updateStatusFromWebhook(payload) {
     message_template_language: language,
     event,
     reason,
+    wabaId,
   } = payload || {};
 
   if (!name || !language || !event) {
@@ -294,8 +298,10 @@ async function updateStatusFromWebhook(payload) {
     throw err;
   }
 
+  const filter = wabaId ? { wabaId, name, language } : { name, language };
+
   const template = await Template.findOneAndUpdate(
-    { name, language },
+    filter,
     {
       status: event,
       rejectionReason: event === 'REJECTED' ? reason || null : null,

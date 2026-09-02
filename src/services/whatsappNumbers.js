@@ -32,7 +32,7 @@ async function getNumberByPhone(phoneNumber) {
     throw err;
   }
 
-  const queue = number.queue ? await Queue.findById(number.queue).lean() : null;
+  const queue = number.queue ? await Queue.findOne({ slug: number?.queue }).lean() : null;
 
   return {
     tenantId: number.tenantId,
@@ -95,13 +95,13 @@ async function updateAssignment(tenantId, id, { queue, flow }) {
   // correctly — actually tear it down instead of just flipping the flag,
   // then require a fresh Subscribe against the new queue.
   if (queueChanged && number.subscribed) {
-    const previousQueue = previousQueueId ? await Queue.findOne({ _id: previousQueueId, tenantId }).lean() : null;
+    const previousQueue = previousQueueId ? await Queue.findOne({ slug: queue, tenantId }).lean() : null;
 
     if (previousQueue) {
       try {
         await axios.post(
           `${configs.WHATSAPP_LOCAL_URL}/numbers/unsubscribe`,
-          { phoneNumber: number.phoneNumber, querySlug: previousQueue.slug },
+          { phoneNumber: number.phoneNumber, querySlug: previousQueue?.slug },
           { headers: { 'x-internal-key': configs.INTERNAL_SERVICE_KEY } }
         );
       } catch (err) {
@@ -137,7 +137,7 @@ async function subscribeNumber(tenantId, id) {
     throw err;
   }
 
-  const queue = await Queue.findOne({ _id: number.queue, tenantId }).lean();
+  const queue = await Queue.findOne({ slug: number?.queue, tenantId }).lean();
   if (!queue) {
     const err = new Error('Assigned queue no longer exists');
     err.statusCode = 409;
@@ -181,7 +181,7 @@ async function unsubscribeNumber(tenantId, id) {
     throw err;
   }
 
-  const queue = number.queue ? await Queue.findOne({ _id: number.queue, tenantId }).lean() : null;
+  const queue = number.queue ? await Queue.findOne({ slug: number.queue, tenantId }).lean() : null;
 
   if (queue) {
     try {
