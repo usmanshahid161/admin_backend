@@ -28,6 +28,24 @@ module.exports = {
   process.env.AWS_SECRET_ACCESS_KEY,
 
   AWS_S3_BUCKET:
-  process.env.AWS_S3_BUCKET
+  process.env.AWS_S3_BUCKET,
+
+  // auth service — WhatsApp Embedded Signup saves the tenant's real Meta
+  // credentials there (see services/embeddedSignup.js), not on the
+  // WhatsappNumber record here.
+  AUTH_SERVICE_URL:
+  process.env.AUTH_SERVICE_URL,
+
+  // Meta for Developers App — the App Secret must never reach the
+  // browser, so the Embedded Signup OAuth code exchange happens here,
+  // server-side, not in the frontend.
+  META_APP_ID:
+  process.env.META_APP_ID,
+
+  META_APP_SECRET:
+  process.env.META_APP_SECRET,
+
+  GRAPH_API_VERSION:
+    process.env.GRAPH_API_VERSION || 'v20.0'
 
 };
