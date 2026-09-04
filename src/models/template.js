@@ -84,6 +84,12 @@ const TemplateSchema = new mongoose.Schema(
         },
         text: { type: String, maxlength: 60 },
         example: String, // example value for the header's single variable
+        // Human-readable name for the header's single variable (e.g.
+        // "customer_name") — shown instead of a bare "{{1}}" wherever a
+        // campaign collects/maps values for this template (see
+        // campaign-service's contact list creation flow). Purely local;
+        // never sent to Meta, which only knows positional {{n}}.
+        variableName: String,
         exampleUrl: String, // sample media URL/handle for IMAGE/VIDEO/DOCUMENT
       },
       body: {
@@ -94,6 +100,10 @@ const TemplateSchema = new mongoose.Schema(
         // common/templateValidator.js, category-aware.
         text: { type: String, maxlength: 1024, default: '' },
         examples: [String], // example value per {{n}} variable, in order
+        // Human-readable name per {{n}}, same order/indexing as
+        // `examples` (variableNames[0] names {{1}}, etc.) — same purpose
+        // as header.variableName above.
+        variableNames: [String],
       },
       footer: {
         text: { type: String, maxlength: 60 },
