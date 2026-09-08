@@ -46,6 +46,6 @@ module.exports = {
   process.env.META_APP_SECRET,
 
   GRAPH_API_VERSION:
-    process.env.GRAPH_API_VERSION || 'v20.0'
+  process.env.GRAPH_API_VERSION || 'v20.0'
 
 };

@@ -18,7 +18,18 @@ function buildMetaComponents(template) {
   const components = [];
   const { header, body, footer, buttons } = template.components || {};
 
-  if (header?.type && header.type !== 'NONE') {
+  // Meta rejects a carousel template outright if its main message
+  // bubble carries a header or footer at all ("Carousel main message
+  // bubble cannot have a header or footer") — not just discouraged, a
+  // hard structural rule. The frontend already disables the header
+  // field once carousel is toggled on, but this is the actual guarantee
+  // — no header/footer component gets built for a carousel template
+  // regardless of whatever stale values might still be sitting in
+  // template.components (e.g. a footer that was set before carousel was
+  // turned on and never got cleared client-side).
+  const isCarousel = Boolean(template.carousel?.cards?.length);
+
+  if (!isCarousel && header?.type && header.type !== 'NONE') {
     const headerComponent = { type: 'HEADER', format: header.type };
     if (header.type === 'TEXT') {
       headerComponent.text = header.text;
@@ -39,23 +50,62 @@ function buildMetaComponents(template) {
     ...(body.examples?.length ? { example: { body_text: [body.examples] } } : {}),
   });
 
-  if (footer?.text) {
+  if (!isCarousel && footer?.text) {
     components.push({ type: 'FOOTER', text: footer.text });
   }
 
-  if (buttons?.length) {
+  // Every documented carousel example has exactly BODY + CAROUSEL at the
+  // top level, nothing else — matching the "no header or footer" rule
+  // Meta actually enforces (confirmed by the rejection above), main-level
+  // buttons are excluded here too on the same reasoning, rather than
+  // risking the same class of rejection for a case not yet hit in
+  // practice.
+  if (!isCarousel && buttons?.length) {
     components.push({
       type: 'BUTTONS',
-      buttons: buttons.map((b) => {
-        if (b.type === 'URL') return { type: 'URL', text: b.text, url: b.url };
-        if (b.type === 'PHONE_NUMBER') return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phoneNumber };
-        if (b.type === 'COPY_CODE') return { type: 'COPY_CODE', text: b.text };
-        return { type: 'QUICK_REPLY', text: b.text };
-      }),
+      buttons: buttons.map((b) => buildButtonPayload(b)),
+    });
+  }
+
+  if (template.carousel?.cards?.length) {
+    components.push({
+      type: 'CAROUSEL',
+      cards: template.carousel.cards.map((card) => ({
+        components: [
+          {
+            type: 'HEADER',
+            format: card.header.type,
+            // Same as the main header above — exampleUrl is expected to
+            // already be a Meta media handle by the time this runs.
+            example: { header_handle: [card.header.exampleUrl] },
+          },
+          {
+            type: 'BODY',
+            text: card.body.text,
+            ...(card.body.examples?.length ? { example: { body_text: [card.body.examples] } } : {}),
+          },
+          {
+            type: 'BUTTONS',
+            buttons: (card.buttons || []).map((b) => buildButtonPayload(b)),
+          },
+        ],
+      })),
     });
   }
 
   return components;
+}
+
+// Shared between the main BUTTONS component and each carousel card's own
+// BUTTONS component — carousel cards only actually use URL/QUICK_REPLY
+// (enforced in common/templateValidator.js), but this covers every type
+// the main buttons array can have too, so there's one place that knows
+// how to shape a button for Meta.
+function buildButtonPayload(b) {
+  if (b.type === 'URL') return { type: 'URL', text: b.text, url: b.url };
+  if (b.type === 'PHONE_NUMBER') return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phoneNumber };
+  if (b.type === 'COPY_CODE') return { type: 'COPY_CODE', text: b.text };
+  return { type: 'QUICK_REPLY', text: b.text };
 }
 
 // See: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/authentication-templates

@@ -12,6 +12,9 @@ const LIMITS = {
   BUTTONS_MAX: 10,
   QUICK_REPLY_MAX: 10,
   CTA_MAX: 2,
+  CAROUSEL_MIN_CARDS: 2,
+  CAROUSEL_MAX_CARDS: 10,
+  CAROUSEL_BODY_TEXT_MAX: 160,
 };
 
 const NAME_PATTERN = /^[a-z0-9_]+$/;
@@ -121,7 +124,80 @@ function validateTemplatePayload(payload) {
     if (['OTP'].includes(b.type)) errors.push(`Button ${i + 1}: OTP buttons are only valid on AUTHENTICATION templates`);
   });
 
+  if (payload.carousel?.cards?.length) {
+    validateCarouselCards(payload.carousel.cards, errors);
+  }
+
   return errors;
+}
+
+// Meta's carousel rules — enforced here rather than in the schema so a
+// genuinely-invalid draft can still be *saved* mid-edit, just not
+// submitted. All of these are Meta requirements, not house style:
+// https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/carousel-templates
+function validateCarouselCards(cards, errors) {
+  if (cards.length < LIMITS.CAROUSEL_MIN_CARDS || cards.length > LIMITS.CAROUSEL_MAX_CARDS) {
+    errors.push(`A carousel needs between ${LIMITS.CAROUSEL_MIN_CARDS} and ${LIMITS.CAROUSEL_MAX_CARDS} cards`);
+  }
+
+  // Every card's header must be the same media type — Meta rejects a
+  // carousel mixing IMAGE and VIDEO cards.
+  const headerTypes = new Set(cards.map((c) => c.header?.type).filter(Boolean));
+  if (headerTypes.size > 1) {
+    errors.push('All carousel cards must use the same media type (all image or all video)');
+  }
+
+  // Every card must have the same button structure — same count, same
+  // types, same order. Meta treats a mismatch here as invalid, not just
+  // inconsistent.
+  const buttonSignatures = new Set(
+    cards.map((c) => (c.buttons || []).map((b) => b.type).join(','))
+  );
+  if (buttonSignatures.size > 1) {
+    errors.push('All carousel cards must have the same number and types of buttons, in the same order');
+  }
+
+  cards.forEach((card, i) => {
+    const label = `Card ${i + 1}`;
+
+    if (!['IMAGE', 'VIDEO'].includes(card.header?.type)) {
+      errors.push(`${label}: header must be an image or video`);
+    } else if (!card.header?.exampleUrl) {
+      errors.push(`${label}: a sample media URL is required`);
+    }
+
+    const bodyText = card.body?.text?.trim();
+    if (!bodyText) {
+      errors.push(`${label}: body text is required`);
+    } else if (bodyText.length > LIMITS.CAROUSEL_BODY_TEXT_MAX) {
+      errors.push(`${label}: body must be under ${LIMITS.CAROUSEL_BODY_TEXT_MAX} characters`);
+    } else {
+      const vars = extractVariables(bodyText);
+      if (vars.length) {
+        const expected = vars.map((_, idx) => String(idx + 1));
+        const sorted = [...vars].sort((a, b) => Number(a) - Number(b));
+        if (!expected.every((v, idx) => v === sorted[idx])) {
+          errors.push(`${label}: variables must be numbered sequentially: {{1}}, {{2}}...`);
+        }
+        const missingExamples = vars.some((v) => !card.body.examples?.[Number(v) - 1]);
+        if (missingExamples) {
+          errors.push(`${label}: every {{variable}} needs an example value for review`);
+        }
+      }
+    }
+
+    const buttons = card.buttons || [];
+    if (!buttons.length) {
+      errors.push(`${label}: at least one button is required`);
+    }
+    buttons.forEach((b, bi) => {
+      if (!['QUICK_REPLY', 'URL'].includes(b.type)) {
+        errors.push(`${label}, button ${bi + 1}: carousel card buttons must be quick reply or URL only`);
+      }
+      if (!b.text?.trim()) errors.push(`${label}, button ${bi + 1}: text is required`);
+      if (b.type === 'URL' && !b.url?.trim()) errors.push(`${label}, button ${bi + 1}: URL is required`);
+    });
+  });
 }
 
 // Authentication templates support: an optional security-recommendation

@@ -122,6 +122,44 @@ const TemplateSchema = new mongoose.Schema(
       },
     },
 
+    // Present only when this template has a carousel — Meta's carousel
+    // is a *sibling* of the main header/body/footer/buttons above, not a
+    // replacement (the main body text is what shows above the cards,
+    // same as the screenshot the carousel feature was scoped from).
+    // Each card is structurally its own mini-template: its own media,
+    // its own body text/variables, its own buttons — completely
+    // independent numbering from the main body and from every other
+    // card ({{1}} in card 2 has nothing to do with {{1}} in card 1).
+    //
+    // Meta's real constraints, enforced in common/templateValidator.js
+    // rather than the schema itself (so a genuinely invalid draft can
+    // still be *saved*, just not submitted):
+    //   - 2 to 10 cards
+    //   - every card's header must be the same media type (all IMAGE or
+    //     all VIDEO — never mixed, never TEXT/DOCUMENT/NONE)
+    //   - every card must have the same number of buttons, of the same
+    //     types, in the same order (Meta requires this consistency
+    //     across cards, not just within one)
+    //   - card buttons are QUICK_REPLY or URL only — no PHONE_NUMBER,
+    //     no OTP
+    carousel: {
+      cards: [
+        {
+          _id: false,
+          header: {
+            type: { type: String, enum: ['IMAGE', 'VIDEO'] },
+            exampleUrl: String, // sample media for this specific card
+          },
+          body: {
+            text: { type: String, maxlength: 160 },
+            examples: [String],
+            variableNames: [String],
+          },
+          buttons: [ButtonSchema],
+        },
+      ],
+    },
+
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true } // adds createdAt / updatedAt automatically
