@@ -9,7 +9,13 @@ const ButtonSchema = new mongoose.Schema(
       required: true,
     },
     text: { type: String, required: true, maxlength: 25 },
-    url: String, // for URL buttons
+    url: String, // for URL buttons — may contain one trailing {{1}} for a dynamic suffix
+    // Friendly name for a URL button's {{1}} suffix, same idea as
+    // header.variableName / body.variableNames — shown in the campaign
+    // creation UI instead of a bare "button_1_url" so whoever's setting
+    // up a campaign knows what's actually supposed to go there (e.g.
+    // "product_slug" rather than guessing from the position number).
+    variableName: String,
     phoneNumber: String, // for PHONE_NUMBER buttons
     // OTP buttons only (AUTHENTICATION category) — see components.authentication below
     otpType: { type: String, enum: ['COPY_CODE', 'ONE_TAP', 'ZERO_TAP'] },
